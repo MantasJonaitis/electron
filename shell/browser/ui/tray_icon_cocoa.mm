@@ -148,6 +148,7 @@
 
 - (void)setMenuController:(AtomMenuController*)menu {
   menuController_ = menu;
+  [statusItem_ setMenu:[menuController_ menu]];
 }
 
 - (void)mouseDown:(NSEvent*)event {
@@ -159,6 +160,33 @@
   // atLocation:[NSEvent mouseLocation] inView:nil];
 
   [super mouseDown:event];
+}
+
+- (void)popUpContextMenu:(electron::AtomMenuModel*)menu_model {
+  // Show a custom menu.
+  if (menu_model) {
+    base::scoped_nsobject<AtomMenuController> menuController(
+        [[AtomMenuController alloc] initWithModel:menu_model
+                            useDefaultAccelerator:NO]);
+    // forceHighlight_ = YES;  // Should highlight when showing menu.
+    // [self setNeedsDisplay:YES];
+    // [[menuController menu] popUpMenuPositioningItem:nil
+    // atLocation:NSMakePoint(0, 0) inView:self]; forceHighlight_ = NO; [self
+    // setNeedsDisplay:YES];
+    [statusItem_ setMenu:[menuController menu]];
+    [[statusItem_ button] performClick:self];
+    [statusItem_ setMenu:[menuController_ menu]];
+    return;
+  }
+
+  // if (menuController_ && ![menuController_ isMenuOpen]) {
+  //   // Redraw the tray icon to show highlight if it is enabled.
+  //   [self setNeedsDisplay:YES];
+  //   [statusItem_ popUpStatusItemMenu:[menuController_ menu]];
+  //   // The popUpStatusItemMenu returns only after the showing menu is closed.
+  //   // When it returns, we need to redraw the tray icon to not show
+  //   highlight. [self setNeedsDisplay:YES];
+  // }
 }
 
 - (void)mouseExited:(NSEvent*)event {
@@ -230,7 +258,7 @@ bool TrayIconCocoa::GetIgnoreDoubleClickEvents() {
 
 void TrayIconCocoa::PopUpContextMenu(const gfx::Point& pos,
                                      AtomMenuModel* menu_model) {
-  // [status_item_view_ popUpContextMenu:menu_model];
+  [status_item_view_ popUpContextMenu:menu_model];
 }
 
 void TrayIconCocoa::SetContextMenu(AtomMenuModel* menu_model) {
