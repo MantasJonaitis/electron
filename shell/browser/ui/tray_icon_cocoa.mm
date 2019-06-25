@@ -25,9 +25,6 @@
   // BOOL forceHighlight_;
   // BOOL inMouseEventSequence_;
   // BOOL ANSI_;
-  // base::scoped_nsobject<NSImage> image_;
-  // base::scoped_nsobject<NSImage> alternateImage_;
-  // base::scoped_nsobject<NSString> title_;
   // base::scoped_nsobject<NSMutableAttributedString> attributedTitle_;
   base::scoped_nsobject<NSStatusItem> statusItem_;
   base::scoped_nsobject<NSTrackingArea> trackingArea_;
@@ -60,10 +57,10 @@
   // inMouseEventSequence_ = NO;
 
   if ((self = [super initWithFrame:CGRectZero])) {
-    // [self registerForDraggedTypes:@[
-    //   NSFilenamesPboardType,
-    //   NSStringPboardType,
-    // ]];
+    [self registerForDraggedTypes:@[
+      NSFilenamesPboardType,
+      NSStringPboardType,
+    ]];
 
     // Create the status item.
     NSStatusItem* item = [[NSStatusBar systemStatusBar]
@@ -189,6 +186,17 @@
   // }
 }
 
+- (void)rightMouseUp:(NSEvent*)event {
+  trayIcon_->NotifyRightClicked(
+      gfx::ScreenRectFromNSRect(event.window.frame),
+      ui::EventFlagsFromModifiers([event modifierFlags]));
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  trayIcon_->NotifyDragEntered();
+  return NSDragOperationCopy;
+}
+
 - (void)mouseExited:(NSEvent*)event {
   trayIcon_->NotifyMouseExited(
       gfx::ScreenPointFromNSPoint([event locationInWindow]),
@@ -205,6 +213,46 @@
   trayIcon_->NotifyMouseMoved(
       gfx::ScreenPointFromNSPoint([event locationInWindow]),
       ui::EventFlagsFromModifiers([event modifierFlags]));
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+  trayIcon_->NotifyDragExited();
+}
+
+- (void)draggingEnded:(id<NSDraggingInfo>)sender {
+  trayIcon_->NotifyDragEnded();
+
+  if (NSPointInRect([sender draggingLocation], self.frame)) {
+    trayIcon_->NotifyDrop();
+  }
+}
+
+- (BOOL)handleDrop:(id<NSDraggingInfo>)sender {
+  NSPasteboard* pboard = [sender draggingPasteboard];
+
+  if ([[pboard types] containsObject:NSFilenamesPboardType]) {
+    std::vector<std::string> dropFiles;
+    NSArray* files = [pboard propertyListForType:NSFilenamesPboardType];
+    for (NSString* file in files)
+      dropFiles.push_back(base::SysNSStringToUTF8(file));
+    trayIcon_->NotifyDropFiles(dropFiles);
+    return YES;
+  } else if ([[pboard types] containsObject:NSStringPboardType]) {
+    NSString* dropText = [pboard stringForType:NSStringPboardType];
+    trayIcon_->NotifyDropText(base::SysNSStringToUTF8(dropText));
+    return YES;
+  }
+
+  return NO;
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
+  return YES;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  [self handleDrop:sender];
+  return YES;
 }
 
 @end
