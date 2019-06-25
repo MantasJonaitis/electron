@@ -7,25 +7,15 @@
 #include <string>
 #include <vector>
 
-// #include "base/mac/sdk_forward_declarations.h"
 #include "base/strings/sys_string_conversions.h"
-// #include "shell/browser/mac/atom_application.h"
-// #include "shell/browser/ui/cocoa/NSString+ANSI.h"
 #include "shell/browser/ui/cocoa/atom_menu_controller.h"
-// #include "ui/display/screen.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
-// #include "ui/gfx/image/image.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
 
 @interface StatusItemView : NSView {
   electron::TrayIconCocoa* trayIcon_;   // weak
   AtomMenuController* menuController_;  // weak
-  // electron::TrayIcon::HighlightMode highlight_mode_;
-  // BOOL ignoreDoubleClickEvents_;
-  // BOOL forceHighlight_;
-  // BOOL inMouseEventSequence_;
-  // BOOL ANSI_;
-  // base::scoped_nsobject<NSMutableAttributedString> attributedTitle_;
+  BOOL ignoreDoubleClickEvents_;
   base::scoped_nsobject<NSStatusItem> statusItem_;
   base::scoped_nsobject<NSTrackingArea> trackingArea_;
 }
@@ -40,21 +30,10 @@
   [super dealloc];
 }
 
-// - (void)drawRect:(NSRect)todoRect {
-//   // set any NSColor for filling, say white:
-//   // [[NSColor redColor] setFill];
-//   // NSRectFill(todoRect);
-//   [super drawRect:todoRect];
-// }
-
 - (id)initWithIcon:(electron::TrayIconCocoa*)icon {
   trayIcon_ = icon;
   menuController_ = nil;
-  trackingArea_.reset();
-  // highlight_mode_ = electron::TrayIcon::HighlightMode::SELECTION;
-  // ignoreDoubleClickEvents_ = NO;
-  // forceHighlight_ = NO;
-  // inMouseEventSequence_ = NO;
+  ignoreDoubleClickEvents_ = NO;
 
   if ((self = [super initWithFrame:CGRectZero])) {
     [self registerForDraggedTypes:@[
@@ -67,8 +46,6 @@
         statusItemWithLength:NSVariableStatusItemLength];
     statusItem_.reset([item retain]);
     [[statusItem_ button] addSubview:self];  // inject custom view
-    // NSView* superview = [[statusItem_ button] superview];
-    // [[superview superview] addSubview:self];
     [self updateDimensions];
   }
   return self;
@@ -76,20 +53,11 @@
 
 - (void)updateDimensions {
   [self setFrame:[statusItem_ button].frame];
-
-  LOG(INFO) << "button bounds: "
-            << [NSStringFromRect([statusItem_ button].bounds) UTF8String];
-  LOG(INFO) << "button frame: "
-            << [NSStringFromRect([statusItem_ button].frame) UTF8String];
-  LOG(INFO) << "self bounds: " << [NSStringFromRect(self.bounds) UTF8String];
-  LOG(INFO) << "self frame: " << [NSStringFromRect(self.frame) UTF8String];
-  // LOG(INFO) << "tracking rect: " <<
-  // [NSStringFromRect(trackingArea_.get().rect) UTF8String];
 }
 
 - (void)updateTrackingAreas {
-  // NSTrackingArea used for listening to mouseEnter, mouseExit, and mouseMove
-  // events. Update tracking area size.
+  // Use NSTrackingArea for listening to mouseEnter, mouseExit, and mouseMove
+  // events.
   [self removeTrackingArea:trackingArea_];
   trackingArea_.reset([[NSTrackingArea alloc]
       initWithRect:[self bounds]
@@ -103,7 +71,7 @@
 }
 
 - (void)removeItem {
-  // Turn off tracking events to prevent crash
+  // Turn off tracking events to prevent crash.
   if (trackingArea_) {
     [self removeTrackingArea:trackingArea_];
     trackingArea_.reset();
@@ -122,18 +90,22 @@
   [[statusItem_ button] setAlternateImage:image];  // TODO: or [image copy] ?
 }
 
-- (void)setToolTip:(NSString*)toolTip {
-  [[statusItem_ button] setToolTip:toolTip];  // TODO: or [toolTip copy] ?
+- (void)setIgnoreDoubleClickEvents:(BOOL)ignore {
+  ignoreDoubleClickEvents_ = ignore;
+}
+
+- (BOOL)getIgnoreDoubleClickEvents {
+  return ignoreDoubleClickEvents_;
 }
 
 - (void)setTitle:(NSString*)title {
   [[statusItem_ button] setTitle:title];  // TODO: or [title copy] ?
 
   // Fix icon margins.
-  if (title.length == 0) {
-    [[statusItem_ button] setImagePosition:NSImageOnly];
-  } else {
+  if (title.length > 0) {
     [[statusItem_ button] setImagePosition:NSImageLeft];
+  } else {
+    [[statusItem_ button] setImagePosition:NSImageOnly];
   }
 
   [self updateDimensions];
@@ -149,14 +121,35 @@
 }
 
 - (void)mouseDown:(NSEvent*)event {
-  LOG(INFO) << "Mouse down";
+  // Pass click to superclass to show menu. Custom mouseUp handler won't be
+  // invoked.
+  if (menuController_) {
+    [super mouseDown:event];
+  } else {
+    [[statusItem_ button] highlight:YES];
+  }
+}
 
-  // [statusItem_ popUpStatusItemMenu:[menuController_ menu]];
-  // [[menuController_ menu] popUpMenuPositioningItem:nil atLocation:NSZeroPoint
-  // inView:[statusItem_ button]]; [theMenu popUpMenuPositioningItem:nil
-  // atLocation:[NSEvent mouseLocation] inView:nil];
+- (void)mouseUp:(NSEvent*)event {
+  [[statusItem_ button] highlight:NO];
 
-  [super mouseDown:event];
+  // If we are ignoring double click events, we should ignore the `clickCount`
+  // value and immediately emit a click event.
+  BOOL shouldBeHandledAsASingleClick =
+      (event.clickCount == 1) || ignoreDoubleClickEvents_;
+  if (shouldBeHandledAsASingleClick)
+    trayIcon_->NotifyClicked(
+        gfx::ScreenRectFromNSRect(event.window.frame),
+        gfx::ScreenPointFromNSPoint([event locationInWindow]),
+        ui::EventFlagsFromModifiers([event modifierFlags]));
+
+  // Double click event.
+  BOOL shouldBeHandledAsADoubleClick =
+      (event.clickCount == 2) && !ignoreDoubleClickEvents_;
+  if (shouldBeHandledAsADoubleClick)
+    trayIcon_->NotifyDoubleClicked(
+        gfx::ScreenRectFromNSRect(event.window.frame),
+        ui::EventFlagsFromModifiers([event modifierFlags]));
 }
 
 - (void)popUpContextMenu:(electron::AtomMenuModel*)menu_model {
@@ -165,25 +158,16 @@
     base::scoped_nsobject<AtomMenuController> menuController(
         [[AtomMenuController alloc] initWithModel:menu_model
                             useDefaultAccelerator:NO]);
-    // forceHighlight_ = YES;  // Should highlight when showing menu.
-    // [self setNeedsDisplay:YES];
-    // [[menuController menu] popUpMenuPositioningItem:nil
-    // atLocation:NSMakePoint(0, 0) inView:self]; forceHighlight_ = NO; [self
-    // setNeedsDisplay:YES];
+    // Hacky way to mimic design of ordinary tray menu.
     [statusItem_ setMenu:[menuController menu]];
-    [[statusItem_ button] performClick:self];
+    [[statusItem_ button] performClick:self];  // TODO: blocks thread
     [statusItem_ setMenu:[menuController_ menu]];
     return;
   }
 
-  // if (menuController_ && ![menuController_ isMenuOpen]) {
-  //   // Redraw the tray icon to show highlight if it is enabled.
-  //   [self setNeedsDisplay:YES];
-  //   [statusItem_ popUpStatusItemMenu:[menuController_ menu]];
-  //   // The popUpStatusItemMenu returns only after the showing menu is closed.
-  //   // When it returns, we need to redraw the tray icon to not show
-  //   highlight. [self setNeedsDisplay:YES];
-  // }
+  if (menuController_ && ![menuController_ isMenuOpen]) {
+    [[statusItem_ button] performClick:self];  // TODO: blocks thread
+  }
 }
 
 - (void)rightMouseUp:(NSEvent*)event {
@@ -264,10 +248,7 @@ TrayIconCocoa::TrayIconCocoa() {
 }
 
 TrayIconCocoa::~TrayIconCocoa() {
-  LOG(INFO) << "~TrayIconCocoa()";
   [status_item_view_ removeItem];
-  if (menu_model_)
-    menu_model_->RemoveObserver(this);
 }
 
 void TrayIconCocoa::SetImage(const gfx::Image& image) {
@@ -292,16 +273,15 @@ std::string TrayIconCocoa::GetTitle() {
 }
 
 void TrayIconCocoa::SetHighlightMode(TrayIcon::HighlightMode mode) {
-  // [status_item_view_ setHighlight:mode];
+  LOG(INFO) << "Not supported.";
 }
 
 void TrayIconCocoa::SetIgnoreDoubleClickEvents(bool ignore) {
-  // [status_item_view_ setIgnoreDoubleClickEvents:ignore];
+  [status_item_view_ setIgnoreDoubleClickEvents:ignore];
 }
 
 bool TrayIconCocoa::GetIgnoreDoubleClickEvents() {
-  // return [status_item_view_ getIgnoreDoubleClickEvents];
-  return false;
+  return [status_item_view_ getIgnoreDoubleClickEvents];
 }
 
 void TrayIconCocoa::PopUpContextMenu(const gfx::Point& pos,
@@ -310,31 +290,19 @@ void TrayIconCocoa::PopUpContextMenu(const gfx::Point& pos,
 }
 
 void TrayIconCocoa::SetContextMenu(AtomMenuModel* menu_model) {
-  // Subscribe to MenuClosed event.
-  if (menu_model_)
-    menu_model_->RemoveObserver(this);
-
-  menu_model_ = menu_model;
-
   if (menu_model) {
-    menu_model->AddObserver(this);
     // Create native menu.
     menu_.reset([[AtomMenuController alloc] initWithModel:menu_model
                                     useDefaultAccelerator:NO]);
   } else {
     menu_.reset();
   }
-
   [status_item_view_ setMenuController:menu_.get()];
 }
 
 gfx::Rect TrayIconCocoa::GetBounds() {
   return gfx::ScreenRectFromNSRect([status_item_view_ bounds]);
 }
-
-// void TrayIconCocoa::OnMenuWillClose() {
-//   [status_item_view_ setNeedsDisplay:YES];
-// }
 
 // static
 TrayIcon* TrayIcon::Create() {
