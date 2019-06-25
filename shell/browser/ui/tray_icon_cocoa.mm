@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/strings/sys_string_conversions.h"
+#include "shell/browser/ui/cocoa/NSString+ANSI.h"
 #include "shell/browser/ui/cocoa/atom_menu_controller.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
@@ -99,7 +100,14 @@
 }
 
 - (void)setTitle:(NSString*)title {
-  [[statusItem_ button] setTitle:title];  // TODO: or [title copy] ?
+  if ([title containsANSICodes]) {
+    [[statusItem_ button]
+        setAttributedTitle:
+            [title
+                attributedStringParsingANSICodes]];  // TODO: or [title copy] ?
+  } else {
+    [[statusItem_ button] setTitle:title];  // TODO: or [title copy] ?
+  }
 
   // Fix icon margins.
   if (title.length > 0) {
