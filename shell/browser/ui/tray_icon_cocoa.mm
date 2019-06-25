@@ -43,16 +43,17 @@
   [super dealloc];
 }
 
-- (void)drawRect:(NSRect)todoRect {
-  // set any NSColor for filling, say white:
-  [[NSColor redColor] setFill];
-  NSRectFill(todoRect);
-  [super drawRect:todoRect];
-}
+// - (void)drawRect:(NSRect)todoRect {
+//   // set any NSColor for filling, say white:
+//   // [[NSColor redColor] setFill];
+//   // NSRectFill(todoRect);
+//   [super drawRect:todoRect];
+// }
 
 - (id)initWithIcon:(electron::TrayIconCocoa*)icon {
   trayIcon_ = icon;
   menuController_ = nil;
+  trackingArea_.reset();
   // highlight_mode_ = electron::TrayIcon::HighlightMode::SELECTION;
   // ignoreDoubleClickEvents_ = NO;
   // forceHighlight_ = NO;
@@ -69,23 +70,50 @@
         statusItemWithLength:NSVariableStatusItemLength];
     statusItem_.reset([item retain]);
     [[statusItem_ button] addSubview:self];  // inject custom view
+    // NSView* superview = [[statusItem_ button] superview];
+    // [[superview superview] addSubview:self];
     [self updateDimensions];
-
-    // Add NSTrackingArea for listening to mouseEnter, mouseExit, and mouseMove
-    // events
-    trackingArea_.reset([[NSTrackingArea alloc]
-        initWithRect:[self bounds]
-             options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
-                     NSTrackingActiveAlways
-               owner:self
-            userInfo:nil]);
-    [self addTrackingArea:trackingArea_];
   }
   return self;
 }
 
 - (void)updateDimensions {
   [self setFrame:[statusItem_ button].frame];
+
+  LOG(INFO) << "button bounds: "
+            << [NSStringFromRect([statusItem_ button].bounds) UTF8String];
+  LOG(INFO) << "button frame: "
+            << [NSStringFromRect([statusItem_ button].frame) UTF8String];
+  LOG(INFO) << "self bounds: " << [NSStringFromRect(self.bounds) UTF8String];
+  LOG(INFO) << "self frame: " << [NSStringFromRect(self.frame) UTF8String];
+  // LOG(INFO) << "tracking rect: " <<
+  // [NSStringFromRect(trackingArea_.get().rect) UTF8String];
+}
+
+- (void)updateTrackingAreas {
+  // NSTrackingArea used for listening to mouseEnter, mouseExit, and mouseMove
+  // events. Update tracking area size.
+  [self removeTrackingArea:trackingArea_];
+  trackingArea_.reset([[NSTrackingArea alloc]
+      initWithRect:[self bounds]
+           options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
+                   NSTrackingActiveAlways
+             owner:self
+          userInfo:nil]);
+  [self addTrackingArea:trackingArea_];
+  LOG(INFO) << "update tracking rect: "
+            << [NSStringFromRect(trackingArea_.get().rect) UTF8String];
+}
+
+- (void)removeItem {
+  // Turn off tracking events to prevent crash
+  if (trackingArea_) {
+    [self removeTrackingArea:trackingArea_];
+    trackingArea_.reset();
+  }
+  [[NSStatusBar systemStatusBar] removeStatusItem:statusItem_];
+  [self removeFromSuperview];
+  statusItem_.reset();
 }
 
 - (void)setImage:(NSImage*)image {
@@ -129,6 +157,8 @@
   // [[menuController_ menu] popUpMenuPositioningItem:nil atLocation:NSZeroPoint
   // inView:[statusItem_ button]]; [theMenu popUpMenuPositioningItem:nil
   // atLocation:[NSEvent mouseLocation] inView:nil];
+
+  [super mouseDown:event];
 }
 
 - (void)mouseExited:(NSEvent*)event {
@@ -159,9 +189,9 @@ TrayIconCocoa::TrayIconCocoa() {
 
 TrayIconCocoa::~TrayIconCocoa() {
   LOG(INFO) << "~TrayIconCocoa()";
-  // [status_item_view_ removeItem];
-  // if (menu_model_)
-  //   menu_model_->RemoveObserver(this);
+  [status_item_view_ removeItem];
+  if (menu_model_)
+    menu_model_->RemoveObserver(this);
 }
 
 void TrayIconCocoa::SetImage(const gfx::Image& image) {
@@ -223,7 +253,7 @@ void TrayIconCocoa::SetContextMenu(AtomMenuModel* menu_model) {
 }
 
 gfx::Rect TrayIconCocoa::GetBounds() {
-  return gfx::ScreenRectFromNSRect([status_item_view_ window].frame);
+  return gfx::ScreenRectFromNSRect([status_item_view_ bounds]);
 }
 
 // void TrayIconCocoa::OnMenuWillClose() {
